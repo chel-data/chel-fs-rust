@@ -1,0 +1,179 @@
+/*
+ *  Copyright (C) 2024 github.com/chel-data
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+syntax = "proto3";
+package metadata_ops;
+
+message NodeId {
+  uint64 lo = 1;
+  uint64 hi = 2;
+}
+
+message Attrs {
+  optional uint32 mode = 1;
+  optional uint32 uid = 2;
+  optional uint32 gid = 3;
+  optional uint64 size = 4;
+  optional uint64 atime = 5;
+  optional uint64 atime_nano = 6;
+  optional uint64 mtime = 7;
+  optional uint64 mtime_nano = 8;
+  optional uint64 ctime = 9;
+  optional uint64 ctime_nano = 10;
+}
+
+message RpcResult {
+  uint32 code = 1;
+  optional string reason = 2;
+}
+
+message NodeInfo {
+  NodeId node = 1;
+  Attrs attrs = 3;
+}
+
+message DirEntry {
+  string name = 1;
+  NodeInfo node = 2;
+}
+
+message DirEntryInfo {
+  repeated DirEntry entries = 1;
+}
+
+message OpenHandle {
+  uint64 handle = 1;
+}
+
+message DirPosition {
+  NodeId parent = 1;
+  string name = 2;
+}
+
+message LookupResult {
+  RpcResult res = 1;
+  NodeInfo nodeInfo = 2;
+}
+
+message ForgetArgs {
+  NodeId node = 1;
+  uint64 nlookup = 2;
+}
+
+message GetAttrResult {
+  RpcResult res = 1;
+  Attrs attrs = 2;
+}
+
+message SetAttrArgs {
+  NodeId node = 1;
+  Attrs attrs = 2;
+}
+
+message ReadLinkResult {
+  RpcResult res = 1;
+  string target = 2;
+}
+
+message MakeNodeArgs {
+  DirPosition node = 1;
+  uint32 mode = 2;
+}
+
+message MakeNodeResult {
+  RpcResult res = 1;
+  NodeInfo nodeInfo = 2;
+}
+
+message SymlinkArgs {
+  DirPosition link = 1;
+  string target_name = 2;
+}
+
+message SymlinkResult {
+  RpcResult res = 1;
+  NodeInfo nodeInfo = 2;
+
+}
+
+message RenameArgs {
+  DirPosition old = 1;
+  DirPosition new = 2;
+  uint32 flags = 3;
+}
+
+message LinkArgs {
+  NodeId source = 1;
+  DirPosition target = 2;
+}
+
+message LinkResult {
+  RpcResult res = 1;
+  NodeInfo nodeInfo = 2;
+}
+
+message OpenNodeResult {
+  RpcResult res = 1;
+  OpenHandle handle = 2;
+}
+
+message ReadDirArgs {
+  NodeId dir = 1;
+  OpenHandle handle = 2;
+  uint64 offset = 3;
+}
+
+message ReadDirResult {
+  RpcResult res = 1;
+  DirEntryInfo entries = 2;
+}
+
+message ReleaseDirArgs {
+  NodeId dir = 1;
+  OpenHandle handle = 2;
+}
+
+message OpenArgs {
+  NodeId file = 1;
+  uint32 flags = 2;
+}
+
+message CloseArgs {
+  NodeId file = 1;
+  uint64 handle = 2;
+}
+
+service MetadataOps {
+  rpc Lookup(DirPosition) returns (LookupResult);
+  rpc Forget(ForgetArgs) returns (RpcResult);
+  rpc GetAttr(NodeId) returns (GetAttrResult);
+  rpc SetAttr(SetAttrArgs) returns (RpcResult);
+  rpc ReadLink(DirPosition) returns (ReadLinkResult);
+  rpc MakeNode(MakeNodeArgs) returns (MakeNodeResult);
+  rpc MakeDir(MakeNodeArgs) returns (MakeNodeResult);
+  rpc Unlink(DirPosition) returns (RpcResult);
+  rpc RemoveDir(DirPosition) returns (RpcResult);
+  rpc Symlink(SymlinkArgs) returns (SymlinkResult);
+  rpc Rename(RenameArgs) returns (RpcResult);
+  rpc Link(LinkArgs) returns (LinkResult);
+  rpc OpenDir(NodeId) returns (OpenNodeResult);
+  rpc ReadDir(ReadDirArgs) returns (ReadDirResult);
+  rpc ReleaseDir(ReleaseDirArgs) returns (RpcResult);
+  rpc ReadDirPlus(ReadDirArgs) returns (ReadDirResult);
+  rpc Open(OpenArgs) returns (OpenNodeResult);
+  rpc Close(CloseArgs) returns (RpcResult);
+}
