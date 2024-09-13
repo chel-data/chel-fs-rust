@@ -3,8 +3,18 @@ name = "chel-fs-rust"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "chel-fs-server"
+path = "src/chel_fs_server.rs"
+
+[[bin]]
+name = "chel-fs-client"
+path = "src/chel_fs_client.rs"
+
 [dependencies]
 daos-rust-api = {path = "../daos-rust-api"}
+prost = "0.13.2"
+tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "macros"] }
 tonic = "0.12.2"
 
 [build-dependencies]
