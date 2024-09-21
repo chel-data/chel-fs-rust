@@ -47,8 +47,8 @@ message NodeInfo {
 }
 
 message DirEntryInfo {
-  string name = 1;
-  NodeInfo node = 2;
+  bytes name = 1;
+  optional NodeInfo node = 2;
 }
 
 message DirEntryInfoSet {
@@ -56,12 +56,12 @@ message DirEntryInfoSet {
 }
 
 message OpenHandle {
-  uint64 handle = 1;
+  NodeId handle = 1;
 }
 
 message DirEntry {
   NodeId parent = 1;
-  string name = 2;
+  bytes name = 2;
 }
 
 message GlobalDirEntry {
@@ -70,16 +70,9 @@ message GlobalDirEntry {
   DirEntry entry = 3;
 }
 
-message LookupResponse {
+message GetAttrResponse {
   RpcResult res = 1;
-  NodeInfo nodeInfo = 2;
-}
-
-message ForgetRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId node = 3;
-  uint64 nlookup = 4;
+  optional NodeInfo nodeInfo = 2;
 }
 
 message GlobalNodeId {
@@ -88,21 +81,16 @@ message GlobalNodeId {
   NodeId node = 3;
 }
 
-message GetAttrResponse {
-  RpcResult res = 1;
-  Attrs attrs = 2;
-}
-
 message SetAttrRequest {
   string poolId = 1;
   string contId = 2;
-  NodeId node = 3;
+  DirEntry entry = 3;
   Attrs attrs = 4;
 }
 
 message ReadLinkResponse {
   RpcResult res = 1;
-  string target = 2;
+  optional bytes target = 2;
 }
 
 message MakeNodeRequest {
@@ -114,19 +102,19 @@ message MakeNodeRequest {
 
 message MakeNodeResponse {
   RpcResult res = 1;
-  NodeInfo nodeInfo = 2;
+  optional NodeInfo nodeInfo = 2;
 }
 
 message SymlinkRequest {
   string poolId = 1;
   string contId = 2;
   DirEntry link = 3;
-  string target_name = 4;
+  bytes target_name = 4;
 }
 
 message SymlinkResponse {
   RpcResult res = 1;
-  NodeInfo nodeInfo = 2;
+  optional NodeInfo nodeInfo = 2;
 }
 
 message RenameRequest {
@@ -146,12 +134,12 @@ message LinkRequest {
 
 message LinkResponse {
   RpcResult res = 1;
-  NodeInfo nodeInfo = 2;
+  optional NodeInfo nodeInfo = 2;
 }
 
 message OpenNodeResponse {
   RpcResult res = 1;
-  OpenHandle handle = 2;
+  optional OpenHandle handle = 2;
 }
 
 message ReadDirRequest {
@@ -164,7 +152,7 @@ message ReadDirRequest {
 
 message ReadDirResponse {
   RpcResult res = 1;
-  DirEntryInfoSet entries = 2;
+  optional DirEntryInfoSet entries = 2;
 }
 
 message ReleaseDirRequest {
@@ -189,13 +177,10 @@ message CloseRequest {
 }
 
 service MetadataOps {
-  rpc Lookup(GlobalDirEntry) returns (LookupResponse);
-  rpc Forget(ForgetRequest) returns (RpcResult);
-  rpc GetAttr(GlobalNodeId) returns (GetAttrResponse);
+  rpc GetAttr(GlobalDirEntry) returns (GetAttrResponse);
   rpc SetAttr(SetAttrRequest) returns (RpcResult);
-  rpc ReadLink(GlobalDirEntry) returns (ReadLinkResponse);
+  rpc ReadLink(GlobalNodeId) returns (ReadLinkResponse);
   rpc MakeNode(MakeNodeRequest) returns (MakeNodeResponse);
-  rpc MakeDir(MakeNodeRequest) returns (MakeNodeResponse);
   rpc Unlink(GlobalDirEntry) returns (RpcResult);
   rpc RemoveDir(GlobalDirEntry) returns (RpcResult);
   rpc Symlink(SymlinkRequest) returns (SymlinkResponse);

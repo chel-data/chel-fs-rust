@@ -15,13 +15,17 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use tokio;
+const FILE_TYPE_MASK: u32 = 0o170000;
+const FILE_PERM_MASK: u32 = 0o777;
 
-use crate::metadata_ops::metadata_ops_client::MetadataOpsClient;
+pub fn sanitize_file_mode(raw_mode: u32) -> u32 {
+    raw_mode & (FILE_TYPE_MASK | FILE_PERM_MASK)
+}
 
-mod metadata_ops;
+pub fn get_file_type(mode: u32) -> u32 {
+    mode & FILE_TYPE_MASK
+}
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    Ok(())
+pub fn get_file_perm(mode: u32) -> u32 {
+    mode & FILE_PERM_MASK
 }
