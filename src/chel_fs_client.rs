@@ -16,12 +16,11 @@
  */
 
 use tokio;
-
+use fuser::Filesystem;
 use crate::metadata_ops::metadata_ops_client::MetadataOpsClient;
 
 mod metadata_ops;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }

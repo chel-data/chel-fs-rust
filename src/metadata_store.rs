@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2024 github.com/chel-data
+ *  Copyright (C) 2024 github./chel-data
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,16 +17,18 @@
 
 use daos_rust_api::daos_cont::{DaosContainer, DaosContainerAsyncOps};
 use daos_rust_api::daos_obj::{
-    DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_INSERT, DAOS_OC_HINTS_NONE, DAOS_OC_UNKNOWN,
-    DAOS_OT_ARRAY_BYTE,
+    DaosKeyList, DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_INSERT, DAOS_OC_HINTS_NONE,
+    DAOS_OC_UNKNOWN, DAOS_OT_ARRAY_BYTE,
 };
 use daos_rust_api::daos_oid_allocator::DaosAsyncOidAllocator;
 use daos_rust_api::daos_pool::{DaosObjectId, DaosPool};
-use daos_rust_api::daos_txn::{DaosTxn, DaosTxnAsyncOps};
+use daos_rust_api::daos_txn::DaosTxn;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Result};
-use std::sync::Arc;
+use std::ops::Range;
+use std::sync::{atomic::AtomicU64, Arc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::vec::Vec;
 use tokio::sync::RwLock;
@@ -65,12 +67,43 @@ fn decode_inode(bytes: &[u8]) -> zvariant::Result<(Inode, usize)> {
 }
 
 #[derive(Debug)]
+struct OpenDirState {
+    dir: Arc<DaosObject>,
+    key_list: Box<DaosKeyList>,
+    key_range: Range<u64>,
+}
+
+impl OpenDirState {
+    fn new(dir: Arc<DaosObject>, key_list: Box<DaosKeyList>) -> Box<Self> {
+        Box::new(Self {
+            dir,
+            key_list,
+            key_range: 0..0,
+        })
+    }
+
+    fn construct(
+        dir: Arc<DaosObject>,
+        key_list: Box<DaosKeyList>,
+        key_range: Range<u64>,
+    ) -> Box<Self> {
+        Box::new(Self {
+            dir,
+            key_list,
+            key_range,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct MetadataStore {
     root: RwLock<Option<Arc<DaosObject>>>,
-    pool: Arc<DaosPool>,
+    _pool: Arc<DaosPool>,
     cont: Arc<DaosContainer>,
     oid_allocator: Arc<DaosAsyncOidAllocator>,
     dir_cache: RwLock<HashMap<DaosObjectId, Arc<DaosObject>>>,
+    open_dir: RwLock<HashMap<(u64, u64), Box<OpenDirState>>>,
+    gen_counter: AtomicU64,
 }
 
 impl MetadataStore {
@@ -81,10 +114,12 @@ impl MetadataStore {
     ) -> Self {
         Self {
             root: RwLock::new(None),
-            pool,
+            _pool: pool,
             cont,
             oid_allocator: allocator,
             dir_cache: RwLock::new(HashMap::new()),
+            open_dir: RwLock::new(HashMap::new()),
+            gen_counter: AtomicU64::new(rand::thread_rng().next_u64()),
         }
     }
 
@@ -103,7 +138,7 @@ impl MetadataStore {
             .fetch_async(&txn, flags, entry_name, akey, 512)
             .await?;
 
-        if let Ok((inode, length)) = decode_inode(ino_buf.as_slice()) {
+        if let Ok((inode, _length)) = decode_inode(ino_buf.as_slice()) {
             Ok(inode)
         } else {
             Err(Error::new(ErrorKind::InvalidData, "Failed to decode inode"))
@@ -172,8 +207,88 @@ impl MetadataStore {
         Ok(inode)
     }
 
-    pub async fn open_dir(&self, dir: DaosObjectId) -> Result<()> {
-        let _ = self.get_dir_obj(dir, true).await?;
+    fn gen_handle(&self) -> (u64, u64) {
+        (
+            self.gen_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            rand::thread_rng().next_u64(),
+        )
+    }
+
+    pub async fn open_dir(&self, dir: DaosObjectId) -> Result<(u64, u64)> {
+        let dir_obj = self.get_dir_obj(dir, false).await?;
+        let key_list = DaosKeyList::new();
+        let dir_state = OpenDirState::new(dir_obj, key_list);
+        let key: (u64, u64) = self.gen_handle();
+
+        let mut open_dir = self.open_dir.write().await;
+        open_dir.insert(key, dir_state);
+        Ok(key)
+    }
+
+    pub async fn read_dir<F>(
+        &self,
+        handle: (u64, u64),
+        offset: u64,
+        mut entry_func: F,
+    ) -> Result<()>
+    where
+        F: FnMut(Vec<u8>, Option<Inode>) -> Result<()>,
+    {
+        let mut open_dir = self.open_dir.write().await;
+        let open_state = open_dir.remove(&handle);
+        drop(open_dir);
+        if open_state.is_none() {
+            return Err(Error::new(ErrorKind::NotFound, "No handle is found"));
+        }
+
+        let OpenDirState {
+            dir,
+            key_list,
+            key_range: range,
+        } = *open_state.unwrap();
+
+        if offset < range.start {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "offset can't move backward",
+            ));
+        }
+
+        let (key_list, start_offset) = if offset >= range.end || range.start >= range.end {
+            let mut key_list = dir.list_dkey_async(&DaosTxn::txn_none(), key_list).await?;
+            let mut start_offset = range.end;
+            while offset >= (start_offset + key_list.get_key_num() as u64) && !key_list.reach_end()
+            {
+                start_offset += key_list.get_key_num() as u64;
+                key_list = dir.list_dkey_async(&DaosTxn::txn_none(), key_list).await?;
+            }
+            (key_list, start_offset)
+        } else {
+            (key_list, range.start)
+        };
+
+        let mut start_and_idx = (0, 0);
+        for i in 0..key_list.get_key_num() {
+            let (key, range) = key_list.get_key(start_and_idx)?;
+            if offset < start_offset + i as u64 {
+                entry_func(key.to_vec(), None)?;
+            }
+            start_and_idx = range;
+        }
+
+        let mut open_dir = self.open_dir.write().await;
+        let new_range = Range {
+            start: start_offset,
+            end: start_offset + key_list.get_key_num() as u64,
+        };
+        open_dir.insert(handle, OpenDirState::construct(dir, key_list, new_range));
+        Ok(())
+    }
+
+    pub async fn close_dir(&self, handle: (u64, u64)) -> Result<()> {
+        let mut open_dir = self.open_dir.write().await;
+        open_dir.remove(&handle);
         Ok(())
     }
 
@@ -229,7 +344,7 @@ impl MetadataStore {
     }
 
     fn get_pool(&self) -> Arc<DaosPool> {
-        self.pool.clone()
+        self._pool.clone()
     }
 
     fn get_container(&self) -> Arc<DaosContainer> {

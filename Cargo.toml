@@ -13,7 +13,9 @@ path = "src/chel_fs_client.rs"
 
 [dependencies]
 daos-rust-api = {path = "../daos-rust-api"}
+fuser = { version = "0.14.0", features = ["abi-7-11"] }
 prost = "0.13.2"
+rand = "0.8.5"
 serde = "1.0.210"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "macros"] }
 tonic = "0.12.2"

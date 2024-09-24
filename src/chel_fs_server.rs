@@ -15,7 +15,7 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod file_utils;
+//mod file_utils;
 mod metadata_ops;
 mod metadata_store;
 use daos_rust_api::daos_cont::DaosContainer;
@@ -59,10 +59,10 @@ impl RpcResult {
             reason: None,
         }
     }
-    pub fn err(reason: &str) -> Self {
+    pub fn err(reason: String) -> Self {
         RpcResult {
             code: 1,
-            reason: Some(reason.to_string()),
+            reason: Some(reason),
         }
     }
 }
@@ -111,15 +111,21 @@ impl MetadataOps for MetadataOpsImpl {
             entry: entry_opt,
         } = request.into_inner();
         if entry_opt.is_none() {
-            return Err(tonic::Status::invalid_argument("Entry is missing"));
+            return Ok(tonic::Response::new(GetAttrResponse {
+                res: Some(RpcResult::err("empty dir entry".to_string())),
+                node_info: None,
+            }));
         }
 
         let DirEntry {
-            parent: parent,
-            name: name,
+            parent,
+            name,
         } = entry_opt.unwrap();
         if parent.is_none() {
-            return Err(tonic::Status::invalid_argument("Parent is missing"));
+            return Ok(tonic::Response::new(GetAttrResponse {
+                res: Some(RpcResult::err("empty parent".to_string())),
+                node_info: None,
+            }));
         }
 
         let parent_oid = parent.unwrap().into();
@@ -136,20 +142,23 @@ impl MetadataOps for MetadataOpsImpl {
                     attrs: Some(inode.into()),
                 }),
             })),
-            Err(e) => Err(tonic::Status::internal(e.to_string())),
+            Err(e) => Ok(tonic::Response::new(GetAttrResponse {
+                res: Some(RpcResult::err(e.to_string())),
+                node_info: None,
+            })),
         }
     }
 
     async fn set_attr(
         &self,
-        request: tonic::Request<SetAttrRequest>,
+        _request: tonic::Request<SetAttrRequest>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn read_link(
         &self,
-        request: tonic::Request<GlobalNodeId>,
+        _request: tonic::Request<GlobalNodeId>,
     ) -> std::result::Result<tonic::Response<ReadLinkResponse>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
@@ -161,21 +170,27 @@ impl MetadataOps for MetadataOpsImpl {
         let MakeNodeRequest {
             pool_id: _pool_id,
             cont_id: _cont_id,
-            node: node,
-            mode: mode,
+            node,
+            mode,
         } = request.into_inner();
 
         if node.is_none() {
-            return Err(tonic::Status::invalid_argument("Node is missing"));
+            return Ok(tonic::Response::new(MakeNodeResponse {
+                res: Some(RpcResult::err("Node is missing".to_string())),
+                node_info: None,
+            }));
         }
 
         let DirEntry {
-            parent: parent,
-            name: name,
+            parent,
+            name,
         } = node.unwrap();
 
         if parent.is_none() {
-            return Err(tonic::Status::invalid_argument("Parent is missing"));
+            return Ok(tonic::Response::new(MakeNodeResponse {
+                res: Some(RpcResult::err("Parent is missing".to_string())),
+                node_info: None,
+            }));
         }
 
         let res = self
@@ -193,41 +208,44 @@ impl MetadataOps for MetadataOpsImpl {
                     attrs: Some(inode.into()),
                 }),
             })),
-            Err(e) => Err(tonic::Status::internal(e.to_string())),
+            Err(e) => Ok(tonic::Response::new(MakeNodeResponse {
+                res: Some(RpcResult::err(e.to_string())),
+                node_info: None,
+            })),
         }
     }
 
     async fn unlink(
         &self,
-        request: tonic::Request<GlobalDirEntry>,
+        _request: tonic::Request<GlobalDirEntry>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn remove_dir(
         &self,
-        request: tonic::Request<GlobalDirEntry>,
+        _request: tonic::Request<GlobalDirEntry>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn symlink(
         &self,
-        request: tonic::Request<SymlinkRequest>,
+        _request: tonic::Request<SymlinkRequest>,
     ) -> std::result::Result<tonic::Response<SymlinkResponse>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn rename(
         &self,
-        request: tonic::Request<RenameRequest>,
+        _request: tonic::Request<RenameRequest>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn link(
         &self,
-        request: tonic::Request<LinkRequest>,
+        _request: tonic::Request<LinkRequest>,
     ) -> std::result::Result<tonic::Response<LinkResponse>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
@@ -239,21 +257,27 @@ impl MetadataOps for MetadataOpsImpl {
         let GlobalNodeId {
             pool_id: _pool_id,
             cont_id: _cont_id,
-            node: node,
+            node,
         } = request.into_inner();
 
         if node.is_none() {
-            return Err(tonic::Status::invalid_argument("Node is missing"));
+            return Ok(tonic::Response::new(OpenNodeResponse {
+                res: Some(RpcResult::err("Node is missing".to_string())),
+                handle: None,
+            }));
         }
 
         let node_id = node.unwrap().into();
         let res = self.store.open_dir(node_id).await;
         match res {
-            Ok(_) => Ok(tonic::Response::new(OpenNodeResponse {
+            Ok((lo, hi)) => Ok(tonic::Response::new(OpenNodeResponse {
                 res: Some(RpcResult::ok()),
-                handle: Some(OpenHandle { handle: node }),
+                handle: Some(OpenHandle { lo, hi }),
             })),
-            Err(e) => Err(tonic::Status::internal(e.to_string())),
+            Err(e) => Ok(tonic::Response::new(OpenNodeResponse {
+                res: Some(RpcResult::err(e.to_string())),
+                handle: None,
+            })),
         }
     }
 
@@ -261,33 +285,99 @@ impl MetadataOps for MetadataOpsImpl {
         &self,
         request: tonic::Request<ReadDirRequest>,
     ) -> std::result::Result<tonic::Response<ReadDirResponse>, tonic::Status> {
-        Err(tonic::Status::unimplemented("Not yet implemented"))
+        let ReadDirRequest {
+            pool_id: _pool_id,
+            cont_id: _cont_id,
+            dir: _dir,
+            handle,
+            offset,
+        } = request.into_inner();
+
+        if handle.is_none() {
+            return Ok(tonic::Response::new(ReadDirResponse {
+                res: Some(RpcResult::err("input is incomplete".to_string())),
+                entries: None,
+            }));
+        }
+
+        const INFO_SET_DEFAULT_CAPACITY: usize = 64;
+        let mut info_set = DirEntryInfoSet {
+            entries: Vec::with_capacity(INFO_SET_DEFAULT_CAPACITY),
+        };
+
+        let handle = handle.unwrap();
+        let res = self
+            .store
+            .read_dir((handle.lo, handle.hi), offset, |name: Vec<u8>, inode: Option<Inode>| {
+                let entry = DirEntryInfo {
+                    name,
+                    node: inode.map(|inode| NodeInfo {
+                        node: Some(NodeId {
+                            lo: inode.oid_lo,
+                            hi: inode.oid_hi,
+                        }),
+                        attrs: Some(inode.into()),
+                    }),
+                };
+
+                info_set.entries.push(entry);
+
+                Ok(())
+            })
+            .await;
+
+        match res {
+            Ok(_) => Ok(tonic::Response::new(ReadDirResponse {
+                res: Some(RpcResult::ok()),
+                entries: Some(info_set),
+            })),
+            Err(e) => Ok(tonic::Response::new(ReadDirResponse {
+                res: Some(RpcResult::err(e.to_string())),
+                entries: None,
+            })),
+        }
     }
 
     async fn release_dir(
         &self,
-        request: tonic::Request<ReleaseDirRequest>,
+        _request: tonic::Request<ReleaseDirRequest>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
-        Err(tonic::Status::unimplemented("Not yet implemented"))
+        let ReleaseDirRequest {
+            pool_id: _pool_id,
+            cont_id: _cont_id,
+            dir: _dir,
+            handle,
+        } = _request.into_inner();
+
+        if handle.is_none() {
+            return Ok(tonic::Response::new(RpcResult::err("handle is empty".to_string())));
+        }
+
+        let handle = handle.unwrap();
+        let res = self.store.close_dir((handle.lo, handle.hi)).await;
+        match res {
+            Ok(_) => Ok(tonic::Response::new(RpcResult::ok())),
+            Err(e) => Ok(tonic::Response::new(RpcResult::err(e.to_string()))),
+        }
     }
 
     async fn read_dir_plus(
         &self,
-        request: tonic::Request<ReadDirRequest>,
+        _request: tonic::Request<ReadDirRequest>,
     ) -> std::result::Result<tonic::Response<ReadDirResponse>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn open(
         &self,
-        request: tonic::Request<OpenRequest>,
+        _request: tonic::Request<OpenRequest>,
     ) -> std::result::Result<tonic::Response<OpenNodeResponse>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }
 
     async fn close(
         &self,
-        request: tonic::Request<CloseRequest>,
+        _request: tonic::Request<CloseRequest>,
     ) -> std::result::Result<tonic::Response<RpcResult>, tonic::Status> {
         Err(tonic::Status::unimplemented("Not yet implemented"))
     }

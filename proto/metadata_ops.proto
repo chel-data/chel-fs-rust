@@ -52,11 +52,12 @@ message DirEntryInfo {
 }
 
 message DirEntryInfoSet {
-  repeated DirEntryInfo entries = 1;
+  repeated DirEntryInfo entries = 2;
 }
 
 message OpenHandle {
-  NodeId handle = 1;
+  uint64 lo = 1;
+  uint64 hi = 2;
 }
 
 message DirEntry {
@@ -173,7 +174,7 @@ message CloseRequest {
   string poolId = 1;
   string contId = 2;
   NodeId file = 3;
-  uint64 handle = 4;
+  OpenHandle handle = 4;
 }
 
 service MetadataOps {
