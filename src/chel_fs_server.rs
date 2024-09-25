@@ -15,9 +15,10 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-//mod file_utils;
+mod file_utils;
 mod metadata_ops;
 mod metadata_store;
+
 use daos_rust_api::daos_cont::DaosContainer;
 use daos_rust_api::daos_pool::{DaosObjectId, DaosPool};
 use daos_rust_api::daos_oid_allocator::DaosAsyncOidAllocator;

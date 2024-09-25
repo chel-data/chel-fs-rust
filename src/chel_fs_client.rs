@@ -18,13 +18,13 @@
 mod file_utils;
 mod metadata_ops;
 
-use file_utils::{apply_umask, get_file_perm, get_file_type, FILE_PERM_DEF, FILE_TYPE_REG};
+use file_utils::{apply_umask, get_file_perm, get_file_type, FILE_PERM_DEF_REG, FILE_TYPE_REG};
 use fuser::consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE};
 use fuser::{
     FileAttr, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyOpen, Request,
 };
-use libc::{EFAULT, EINVAL, ENOENT, ENOMEM, EOPNOTSUPP};
+use libc::{EFAULT, ENOENT};
 use metadata_ops::{
     metadata_ops_client::MetadataOpsClient, Attrs, DirEntry, DirEntryInfo, GetAttrResponse,
     GlobalDirEntry, NodeId, NodeInfo, OpenNodeResponse, ReadDirRequest, ReleaseDirRequest,
@@ -38,7 +38,7 @@ use std::io::{Error, ErrorKind, Result};
 use std::ops::Add;
 use std::os::unix::ffi::OsStrExt;
 use std::sync::{atomic::AtomicU64, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 use tokio::runtime::Builder;
 use tonic::transport::Channel;
 
@@ -55,7 +55,7 @@ pub struct ChelFs2Fuse {
 
 impl From<Attrs> for FileAttr {
     fn from(attrs: Attrs) -> Self {
-        let mode = attrs.mode.unwrap_or(FILE_TYPE_REG | FILE_PERM_DEF);
+        let mode = attrs.mode.unwrap_or(FILE_TYPE_REG | FILE_PERM_DEF_REG);
         FileAttr {
             ino: 0,
             size: attrs.size.unwrap_or(0),
@@ -201,13 +201,13 @@ impl Filesystem for ChelFs2Fuse {
                 "call get_attr failed, msg: {}",
                 res.unwrap_err().to_string()
             );
-            reply.error(EFAULT);
+            reply.error(ENOENT);
             return;
         }
 
         match res.unwrap() {
             GetAttrResponse {
-                res: res,
+                res,
                 node_info: None,
             } => {
                 eprintln!(
@@ -215,16 +215,16 @@ impl Filesystem for ChelFs2Fuse {
                     res.code,
                     res.reason.unwrap_or("empty".to_string())
                 );
-                reply.error(ENOENT);
+                reply.error(EFAULT);
                 return;
             }
             GetAttrResponse {
-                res: res,
+                res: _,
                 node_info: Some(info),
             } => {
                 let NodeInfo {
                     node: node_id,
-                    attrs: attrs,
+                    attrs,
                 } = info;
                 let ino = ChelFs2Fuse::generate_inum(node_id);
                 let res = self.insert_id_map(ino, parent_id, name.as_bytes().to_vec(), node_id);
@@ -245,17 +245,21 @@ impl Filesystem for ChelFs2Fuse {
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
-        let res = self.find_parent(ino);
-        if res.is_err() {
-            eprintln!(
-                "find parent failed, error: {}",
-                res.unwrap_err().to_string()
-            );
-            reply.error(EFAULT);
-            return;
-        }
+        let (parent_id, name) = if ino == ROOT_INODE_NUMBER {
+            (NodeId { hi: 0, lo: 0 }, vec![b'.'])
+        } else {
+            let res = self.find_parent(ino);
+            if res.is_err() {
+                eprintln!(
+                    "find parent failed, error: {}",
+                    res.unwrap_err().to_string()
+                );
+                reply.error(ENOENT);
+                return;
+            }
+            res.unwrap()
+        };
 
-        let (parent_id, name) = res.unwrap();
         let res = self.call_get_attr(parent_id, name);
         if res.is_err() {
             eprintln!(
@@ -285,7 +289,7 @@ impl Filesystem for ChelFs2Fuse {
             } => {
                 let NodeInfo {
                     node: _,
-                    attrs: attrs,
+                    attrs,
                 } = info;
                 let attr = Self::make_file_attr(ino, attrs);
                 reply.attr(&Duration::ZERO, &attr);
@@ -338,7 +342,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             MakeNodeResponse {
-                res: res,
+                res,
                 node_info: None,
             } => {
                 eprintln!(
@@ -346,7 +350,7 @@ impl Filesystem for ChelFs2Fuse {
                     res.code,
                     res.reason.unwrap_or("unknown".to_string())
                 );
-                reply.error(ENOENT);
+                reply.error(EFAULT);
                 return;
             }
             MakeNodeResponse {
@@ -355,7 +359,7 @@ impl Filesystem for ChelFs2Fuse {
             } => {
                 let NodeInfo {
                     node: node_id,
-                    attrs: attrs,
+                    attrs,
                 } = info;
 
                 let ino = ChelFs2Fuse::generate_inum(node_id);
@@ -376,7 +380,7 @@ impl Filesystem for ChelFs2Fuse {
         }
     }
 
-    fn opendir(&mut self, req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+    fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
         let res = self.find_node_id(ino);
         if res.is_err() {
             eprintln!("can't find node id for ino: {}", ino);
@@ -406,13 +410,13 @@ impl Filesystem for ChelFs2Fuse {
                 "call open_dir failed, msg: {}",
                 res.unwrap_err().to_string()
             );
-            reply.error(EFAULT);
+            reply.error(ENOENT);
             return;
         }
 
         match res.unwrap() {
             OpenNodeResponse {
-                res: res,
+                res,
                 handle: None,
             } => {
                 eprintln!(
@@ -420,7 +424,7 @@ impl Filesystem for ChelFs2Fuse {
                     res.code,
                     res.reason.unwrap_or("unknown".to_string())
                 );
-                reply.error(ENOENT);
+                reply.error(EFAULT);
                 return;
             }
             OpenNodeResponse {
@@ -480,7 +484,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             ReadDirResponse {
-                res: res,
+                res,
                 entries: None,
             } => {
                 eprintln!(
@@ -488,7 +492,7 @@ impl Filesystem for ChelFs2Fuse {
                     res.code,
                     res.reason.unwrap_or("unknown".to_string())
                 );
-                reply.error(ENOENT);
+                reply.error(EFAULT);
                 return;
             }
             ReadDirResponse {
@@ -506,7 +510,7 @@ impl Filesystem for ChelFs2Fuse {
 
                     let NodeInfo {
                         node: node_id,
-                        attrs: attrs,
+                        attrs,
                     } = node.unwrap();
                     let ino = ChelFs2Fuse::generate_inum(node_id);
                     let file_type = get_file_type(attrs.mode.unwrap_or(FILE_TYPE_REG));
@@ -554,14 +558,14 @@ impl Filesystem for ChelFs2Fuse {
                 Ok(resp) => Ok(resp.into_inner()),
                 Err(e) => Err(Error::new(
                     ErrorKind::Other,
-                    format!("call close_dir failed, status: {}", e),
+                    format!("call release_dir failed, status: {}", e),
                 )),
             }
         });
 
         if res.is_err() {
             eprintln!(
-                "call close_dir failed, msg: {}",
+                "call release_dir failed, msg: {}",
                 res.unwrap_err().to_string()
             );
             reply.error(EFAULT);
@@ -575,7 +579,7 @@ impl Filesystem for ChelFs2Fuse {
                 result.code,
                 result.reason.unwrap_or("unknown".to_string())
             );
-            reply.error(ENOENT);
+            reply.error(EFAULT);
             return;
         }
 

@@ -19,10 +19,11 @@ use fuser::FileType;
 
 pub const FILE_TYPE_MASK: u32 = 0o170000;
 pub const FILE_PERM_MASK: u32 = 0o777;
-pub const FILE_TYPE_REG:u32 = 0o100000;
-pub const FILE_TYPE_DIR:u32 = 0o040000;
-pub const FILE_TYPE_SYM:u32 = 0o120000;
-pub const FILE_PERM_DEF:u32 = 0o644;
+pub const FILE_TYPE_REG: u32 = 0o100000;
+pub const FILE_TYPE_DIR: u32 = 0o040000;
+pub const FILE_TYPE_SYM: u32 = 0o120000;
+pub const FILE_PERM_DEF_REG: u32 = 0o644;
+pub const FILE_PERM_DEF_DIR: u32 = 0o755;
 
 pub fn get_file_type(mode: u32) -> FileType {
     match mode & FILE_TYPE_MASK {
@@ -41,4 +42,8 @@ pub fn apply_umask(mode: u32, umask: u32) -> u32 {
     let perm = mode & FILE_PERM_MASK;
     let file_type = mode & FILE_TYPE_MASK;
     perm & !umask | file_type
+}
+
+pub fn make_mode(file_type: u32, perm: u32) -> u32 {
+    (file_type & FILE_TYPE_MASK) | (perm & FILE_PERM_MASK)
 }

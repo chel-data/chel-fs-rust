@@ -15,6 +15,7 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::file_utils::{make_mode, FILE_PERM_DEF_DIR, FILE_TYPE_DIR};
 use daos_rust_api::daos_cont::{DaosContainer, DaosContainerAsyncOps};
 use daos_rust_api::daos_obj::{
     DaosKeyList, DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_INSERT, DAOS_OC_HINTS_NONE,
@@ -135,7 +136,7 @@ impl MetadataStore {
         let akey = vec![0u8];
 
         let ino_buf = parent_obj
-            .fetch_async(&txn, flags, entry_name, akey, 512)
+            .fetch_async(&txn, flags, entry_name.clone(), akey, 512)
             .await?;
 
         if let Ok((inode, _length)) = decode_inode(ino_buf.as_slice()) {
@@ -333,15 +334,51 @@ impl MetadataStore {
 
         let root_oid = co_roots[1];
 
-        let root_obj = DaosObject::open_async(self.cont.as_ref(), root_oid, true).await;
-        match root_obj {
-            Ok(obj) => {
-                let root_arc: Arc<DaosObject> = Arc::from(obj);
-                (*root_opt).replace(root_arc.clone());
-                Ok(root_arc)
-            }
-            Err(e) => Err(Error::new(ErrorKind::Other, e)),
+        let root_obj = DaosObject::open_async(self.cont.as_ref(), root_oid, true).await?;
+
+        let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(d) => d,
+            Err(e) => return Err(Error::new(ErrorKind::Other, e.to_string())),
+        };
+        let root_inode = Inode {
+            mode: make_mode(FILE_TYPE_DIR, FILE_PERM_DEF_DIR),
+            oid_lo: root_oid.lo,
+            oid_hi: root_oid.hi,
+            atime: duration.as_secs(),
+            atime_nano: duration.subsec_nanos() as u64,
+            mtime: duration.as_secs(),
+            mtime_nano: duration.subsec_nanos() as u64,
+            ctime: duration.as_secs(),
+            ctime_nano: duration.subsec_nanos() as u64,
+            uid: 0,
+            gid: 0,
+            nlink: 1,
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            total_size: 0,
+        };
+        let encoded_data = encode_inode(&root_inode).map_err(|e| {
+            Error::new(
+                ErrorKind::Other,
+                format!("Failed to encode root inode: {}", e),
+            )
+        })?;
+
+        let res = root_obj
+            .update_async(
+                &DaosTxn::txn_none(),
+                DAOS_COND_DKEY_INSERT as u64,
+                vec![b'.'],
+                vec![0u8],
+                encoded_data.to_vec(),
+            )
+            .await;
+        if res.is_err() {
+            eprintln!("lose in race to create initial root object");
         }
+
+        let root_arc: Arc<DaosObject> = Arc::from(root_obj);
+        (*root_opt).replace(root_arc.clone());
+        Ok(root_arc)
     }
 
     fn get_pool(&self) -> Arc<DaosPool> {
