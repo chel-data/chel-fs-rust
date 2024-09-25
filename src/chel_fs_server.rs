@@ -109,42 +109,30 @@ impl MetadataOps for MetadataOpsImpl {
         let GlobalDirEntry {
             pool_id: _pool_id,
             cont_id: _cont_id,
-            entry: entry_opt,
+            entry,
         } = request.into_inner();
-        if entry_opt.is_none() {
-            return Ok(tonic::Response::new(GetAttrResponse {
-                res: Some(RpcResult::err("empty dir entry".to_string())),
-                node_info: None,
-            }));
-        }
 
         let DirEntry {
             parent,
             name,
-        } = entry_opt.unwrap();
-        if parent.is_none() {
-            return Ok(tonic::Response::new(GetAttrResponse {
-                res: Some(RpcResult::err("empty parent".to_string())),
-                node_info: None,
-            }));
-        }
+        } = entry;
 
-        let parent_oid = parent.unwrap().into();
+        let parent_oid = parent.into();
 
         let entry_inode = self.store.get_node(parent_oid, name).await;
         match entry_inode {
             Ok(inode) => Ok(tonic::Response::new(GetAttrResponse {
-                res: Some(RpcResult::ok()),
+                res: RpcResult::ok(),
                 node_info: Some(NodeInfo {
-                    node: Some(NodeId {
+                    node: NodeId {
                         lo: inode.oid_lo,
                         hi: inode.oid_hi,
-                    }),
-                    attrs: Some(inode.into()),
+                    },
+                    attrs: inode.into(),
                 }),
             })),
             Err(e) => Ok(tonic::Response::new(GetAttrResponse {
-                res: Some(RpcResult::err(e.to_string())),
+                res: RpcResult::err(e.to_string()),
                 node_info: None,
             })),
         }
@@ -175,42 +163,28 @@ impl MetadataOps for MetadataOpsImpl {
             mode,
         } = request.into_inner();
 
-        if node.is_none() {
-            return Ok(tonic::Response::new(MakeNodeResponse {
-                res: Some(RpcResult::err("Node is missing".to_string())),
-                node_info: None,
-            }));
-        }
-
         let DirEntry {
             parent,
             name,
-        } = node.unwrap();
-
-        if parent.is_none() {
-            return Ok(tonic::Response::new(MakeNodeResponse {
-                res: Some(RpcResult::err("Parent is missing".to_string())),
-                node_info: None,
-            }));
-        }
+        } = node;
 
         let res = self
             .store
-            .make_node(parent.unwrap().into(), name, mode)
+            .make_node(parent.into(), name, mode)
             .await;
         match res {
             Ok(inode) => Ok(tonic::Response::new(MakeNodeResponse {
-                res: Some(RpcResult::ok()),
+                res: RpcResult::ok(),
                 node_info: Some(NodeInfo {
-                    node: Some(NodeId {
+                    node: NodeId {
                         lo: inode.oid_lo,
                         hi: inode.oid_hi,
-                    }),
-                    attrs: Some(inode.into()),
+                    },
+                    attrs: inode.into(),
                 }),
             })),
             Err(e) => Ok(tonic::Response::new(MakeNodeResponse {
-                res: Some(RpcResult::err(e.to_string())),
+                res: RpcResult::err(e.to_string()),
                 node_info: None,
             })),
         }
@@ -261,22 +235,15 @@ impl MetadataOps for MetadataOpsImpl {
             node,
         } = request.into_inner();
 
-        if node.is_none() {
-            return Ok(tonic::Response::new(OpenNodeResponse {
-                res: Some(RpcResult::err("Node is missing".to_string())),
-                handle: None,
-            }));
-        }
-
-        let node_id = node.unwrap().into();
+        let node_id = node.into();
         let res = self.store.open_dir(node_id).await;
         match res {
             Ok((lo, hi)) => Ok(tonic::Response::new(OpenNodeResponse {
-                res: Some(RpcResult::ok()),
+                res: RpcResult::ok(),
                 handle: Some(OpenHandle { lo, hi }),
             })),
             Err(e) => Ok(tonic::Response::new(OpenNodeResponse {
-                res: Some(RpcResult::err(e.to_string())),
+                res: RpcResult::err(e.to_string()),
                 handle: None,
             })),
         }
@@ -294,30 +261,22 @@ impl MetadataOps for MetadataOpsImpl {
             offset,
         } = request.into_inner();
 
-        if handle.is_none() {
-            return Ok(tonic::Response::new(ReadDirResponse {
-                res: Some(RpcResult::err("input is incomplete".to_string())),
-                entries: None,
-            }));
-        }
-
         const INFO_SET_DEFAULT_CAPACITY: usize = 64;
         let mut info_set = DirEntryInfoSet {
             entries: Vec::with_capacity(INFO_SET_DEFAULT_CAPACITY),
         };
 
-        let handle = handle.unwrap();
         let res = self
             .store
             .read_dir((handle.lo, handle.hi), offset, |name: Vec<u8>, inode: Option<Inode>| {
                 let entry = DirEntryInfo {
                     name,
                     node: inode.map(|inode| NodeInfo {
-                        node: Some(NodeId {
+                        node: NodeId {
                             lo: inode.oid_lo,
                             hi: inode.oid_hi,
-                        }),
-                        attrs: Some(inode.into()),
+                        },
+                        attrs: inode.into(),
                     }),
                 };
 
@@ -329,11 +288,11 @@ impl MetadataOps for MetadataOpsImpl {
 
         match res {
             Ok(_) => Ok(tonic::Response::new(ReadDirResponse {
-                res: Some(RpcResult::ok()),
+                res: RpcResult::ok(),
                 entries: Some(info_set),
             })),
             Err(e) => Ok(tonic::Response::new(ReadDirResponse {
-                res: Some(RpcResult::err(e.to_string())),
+                res: RpcResult::err(e.to_string()),
                 entries: None,
             })),
         }
@@ -350,11 +309,6 @@ impl MetadataOps for MetadataOpsImpl {
             handle,
         } = _request.into_inner();
 
-        if handle.is_none() {
-            return Ok(tonic::Response::new(RpcResult::err("handle is empty".to_string())));
-        }
-
-        let handle = handle.unwrap();
         let res = self.store.close_dir((handle.lo, handle.hi)).await;
         match res {
             Ok(_) => Ok(tonic::Response::new(RpcResult::ok())),

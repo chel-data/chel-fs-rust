@@ -19,16 +19,15 @@ mod file_utils;
 mod metadata_ops;
 
 use file_utils::{apply_umask, get_file_perm, get_file_type, FILE_PERM_DEF, FILE_TYPE_REG};
-use fuser::consts::{FOPEN_NONSEEKABLE, FOPEN_DIRECT_IO};
+use fuser::consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE};
 use fuser::{
     FileAttr, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyOpen, Request,
 };
 use libc::{EFAULT, EINVAL, ENOENT, ENOMEM, EOPNOTSUPP};
 use metadata_ops::{
-    metadata_ops_client::MetadataOpsClient, Attrs, DirEntry, DirEntryInfo,
-    GetAttrResponse, GlobalDirEntry, NodeId, NodeInfo, OpenNodeResponse, ReadDirRequest,
-    ReleaseDirRequest,
+    metadata_ops_client::MetadataOpsClient, Attrs, DirEntry, DirEntryInfo, GetAttrResponse,
+    GlobalDirEntry, NodeId, NodeInfo, OpenNodeResponse, ReadDirRequest, ReleaseDirRequest,
 };
 use metadata_ops::{GlobalNodeId, MakeNodeRequest, MakeNodeResponse, OpenHandle, ReadDirResponse};
 use rand::RngCore;
@@ -167,10 +166,10 @@ impl ChelFs2Fuse {
         let request = tonic::Request::new(GlobalDirEntry {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            entry: Some(DirEntry {
-                parent: Some(parent_id),
+            entry: DirEntry {
+                parent: parent_id,
                 name,
-            }),
+            },
         });
 
         self.async_runtime.block_on(async {
@@ -208,7 +207,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             GetAttrResponse {
-                res: Some(res),
+                res: res,
                 node_info: None,
             } => {
                 eprintln!(
@@ -220,37 +219,26 @@ impl Filesystem for ChelFs2Fuse {
                 return;
             }
             GetAttrResponse {
-                res: Some(_),
+                res: res,
                 node_info: Some(info),
-            } => match info {
-                NodeInfo {
-                    node: Some(node_id),
-                    attrs: Some(attrs),
-                } => {
-                    let ino = ChelFs2Fuse::generate_inum(node_id);
-                    let res = self.insert_id_map(ino, parent_id, name.as_bytes().to_vec(), node_id);
-                    if res.is_err() {
-                        eprintln!(
-                            "insert id map failed, error: {}",
-                            res.unwrap_err().to_string()
-                        );
-                        reply.error(EFAULT);
-                        return;
-                    }
-
-                    let attr = Self::make_file_attr(ino, attrs);
-                    reply.entry(&Duration::ZERO, &attr, self.gen_generation());
-                    return;
-                }
-                _ => {
-                    eprintln!("incomplete node info");
+            } => {
+                let NodeInfo {
+                    node: node_id,
+                    attrs: attrs,
+                } = info;
+                let ino = ChelFs2Fuse::generate_inum(node_id);
+                let res = self.insert_id_map(ino, parent_id, name.as_bytes().to_vec(), node_id);
+                if res.is_err() {
+                    eprintln!(
+                        "insert id map failed, error: {}",
+                        res.unwrap_err().to_string()
+                    );
                     reply.error(EFAULT);
                     return;
                 }
-            },
-            _ => {
-                eprintln!("invalid response");
-                reply.error(EFAULT);
+
+                let attr = Self::make_file_attr(ino, attrs);
+                reply.entry(&Duration::ZERO, &attr, self.gen_generation());
                 return;
             }
         }
@@ -280,7 +268,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             GetAttrResponse {
-                res: Some(res),
+                res,
                 node_info: None,
             } => {
                 eprintln!(
@@ -292,26 +280,15 @@ impl Filesystem for ChelFs2Fuse {
                 return;
             }
             GetAttrResponse {
-                res: Some(_),
+                res: _,
                 node_info: Some(info),
-            } => match info {
-                NodeInfo {
-                    node: Some(_),
-                    attrs: Some(attrs),
-                } => {
-                    let attr = Self::make_file_attr(ino, attrs);
-                    reply.attr(&Duration::ZERO, &attr);
-                    return;
-                }
-                _ => {
-                    eprintln!("incomplete node info");
-                    reply.error(EFAULT);
-                    return;
-                }
-            },
-            _ => {
-                eprintln!("invalid response");
-                reply.error(EFAULT);
+            } => {
+                let NodeInfo {
+                    node: _,
+                    attrs: attrs,
+                } = info;
+                let attr = Self::make_file_attr(ino, attrs);
+                reply.attr(&Duration::ZERO, &attr);
                 return;
             }
         }
@@ -332,10 +309,10 @@ impl Filesystem for ChelFs2Fuse {
         let request = tonic::Request::new(MakeNodeRequest {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            node: Some(DirEntry {
-                parent: Some(parent_id),
+            node: DirEntry {
+                parent: parent_id,
                 name: name.as_bytes().to_vec(),
-            }),
+            },
             mode: apply_umask(mode, umask),
         });
 
@@ -361,7 +338,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             MakeNodeResponse {
-                res: Some(res),
+                res: res,
                 node_info: None,
             } => {
                 eprintln!(
@@ -373,37 +350,27 @@ impl Filesystem for ChelFs2Fuse {
                 return;
             }
             MakeNodeResponse {
-                res: Some(_),
+                res: _,
                 node_info: Some(info),
-            } => match info {
-                NodeInfo {
-                    node: Some(node_id),
-                    attrs: Some(attrs),
-                } => {
-                    let ino = ChelFs2Fuse::generate_inum(node_id);
-                    let res = self.insert_id_map(ino, parent_id, name.as_bytes().to_vec(), node_id);
-                    if res.is_err() {
-                        eprintln!(
-                            "insert id map failed, error: {}",
-                            res.unwrap_err().to_string()
-                        );
-                        reply.error(EFAULT);
-                        return;
-                    }
+            } => {
+                let NodeInfo {
+                    node: node_id,
+                    attrs: attrs,
+                } = info;
 
-                    let attr = Self::make_file_attr(ino, attrs);
-                    reply.entry(&Duration::ZERO, &attr, self.gen_generation());
-                    return;
-                }
-                _ => {
-                    eprintln!("incomplete node info");
+                let ino = ChelFs2Fuse::generate_inum(node_id);
+                let res = self.insert_id_map(ino, parent_id, name.as_bytes().to_vec(), node_id);
+                if res.is_err() {
+                    eprintln!(
+                        "insert id map failed, error: {}",
+                        res.unwrap_err().to_string()
+                    );
                     reply.error(EFAULT);
                     return;
                 }
-            },
-            _ => {
-                eprintln!("invalid response");
-                reply.error(EFAULT);
+
+                let attr = Self::make_file_attr(ino, attrs);
+                reply.entry(&Duration::ZERO, &attr, self.gen_generation());
                 return;
             }
         }
@@ -420,7 +387,7 @@ impl Filesystem for ChelFs2Fuse {
         let request = tonic::Request::new(GlobalNodeId {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            node: Some(res.unwrap()),
+            node: res.unwrap(),
         });
 
         let res = self.async_runtime.block_on(async {
@@ -445,7 +412,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             OpenNodeResponse {
-                res: Some(res),
+                res: res,
                 handle: None,
             } => {
                 eprintln!(
@@ -457,16 +424,11 @@ impl Filesystem for ChelFs2Fuse {
                 return;
             }
             OpenNodeResponse {
-                res: Some(_),
+                res: _,
                 handle: Some(handle),
             } => {
                 // lo is a non repeating u64
                 reply.opened(handle.lo, 0);
-                return;
-            }
-            _ => {
-                eprintln!("invalid response");
-                reply.error(EFAULT);
                 return;
             }
         }
@@ -491,8 +453,8 @@ impl Filesystem for ChelFs2Fuse {
         let request = tonic::Request::new(ReadDirRequest {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            dir: Some(parent_id.clone()),
-            handle: Some(OpenHandle { lo: fh, hi: 0 }),
+            dir: parent_id.clone(),
+            handle: OpenHandle { lo: fh, hi: 0 },
             offset: offset,
         });
 
@@ -518,7 +480,7 @@ impl Filesystem for ChelFs2Fuse {
 
         match res.unwrap() {
             ReadDirResponse {
-                res: Some(res),
+                res: res,
                 entries: None,
             } => {
                 eprintln!(
@@ -530,7 +492,7 @@ impl Filesystem for ChelFs2Fuse {
                 return;
             }
             ReadDirResponse {
-                res: Some(_),
+                res: _,
                 entries: Some(entry_set),
             } => {
                 let mut entry_offset = offset;
@@ -542,35 +504,22 @@ impl Filesystem for ChelFs2Fuse {
                         return;
                     }
 
-                    match node.unwrap() {
-                        NodeInfo {
-                            node: Some(node_id),
-                            attrs: Some(attrs),
-                        } => {
-                            let ino = ChelFs2Fuse::generate_inum(node_id);
-                            let file_type = get_file_type(attrs.mode.unwrap_or(FILE_TYPE_REG));
-                            let entry_name = OsStr::from_bytes(&name).to_owned();
-                            self.insert_id_map(ino, parent_id, name, node_id)
-                                .expect("insert id map failed");
-                            if reply.add(ino, entry_offset, file_type, &entry_name) {
-                                break;
-                            }
-                        }
-                        _ => {
-                            eprintln!("incomplete node info");
-                            reply.error(EFAULT);
-                            return;
-                        }
+                    let NodeInfo {
+                        node: node_id,
+                        attrs: attrs,
+                    } = node.unwrap();
+                    let ino = ChelFs2Fuse::generate_inum(node_id);
+                    let file_type = get_file_type(attrs.mode.unwrap_or(FILE_TYPE_REG));
+                    let entry_name = OsStr::from_bytes(&name).to_owned();
+                    self.insert_id_map(ino, parent_id, name, node_id)
+                        .expect("insert id map failed");
+                    if reply.add(ino, entry_offset, file_type, &entry_name) {
+                        break;
                     }
 
                     entry_offset += 1;
                 }
                 reply.ok();
-                return;
-            }
-            _ => {
-                eprintln!("invalid response");
-                reply.error(EFAULT);
                 return;
             }
         }
@@ -595,8 +544,8 @@ impl Filesystem for ChelFs2Fuse {
         let request = tonic::Request::new(ReleaseDirRequest {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            dir: Some(parent_id.clone()),
-            handle: Some(OpenHandle { lo: fh, hi: 0 }),
+            dir: parent_id.clone(),
+            handle: OpenHandle { lo: fh, hi: 0 },
         });
 
         let res = self.async_runtime.block_on(async {
@@ -637,11 +586,30 @@ impl Filesystem for ChelFs2Fuse {
         reply.opened(ino, FOPEN_DIRECT_IO | FOPEN_NONSEEKABLE);
     }
 
-    fn release(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: ReplyEmpty) {
+    fn release(
+        &mut self,
+        _req: &Request,
+        _ino: u64,
+        _fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
         reply.ok();
     }
 
-    fn read(&mut self, _req: &Request, ino: u64, _fh: u64, _offset: i64, _size: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyData) {
+    fn read(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        _offset: i64,
+        _size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        reply: ReplyData,
+    ) {
         let str = format!("ino = {}", ino);
         reply.data(str.as_ref());
     }

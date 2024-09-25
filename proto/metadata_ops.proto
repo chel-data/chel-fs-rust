@@ -15,12 +15,12 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-syntax = "proto3";
+syntax = "proto2";
 package metadata_ops;
 
 message NodeId {
-  uint64 lo = 1;
-  uint64 hi = 2;
+  required uint64 lo = 1;
+  required uint64 hi = 2;
 }
 
 message Attrs {
@@ -38,17 +38,17 @@ message Attrs {
 }
 
 message RpcResult {
-  uint32 code = 1;
+  required uint32 code = 1;
   optional string reason = 2;
 }
 
 message NodeInfo {
-  NodeId node = 1;
-  Attrs attrs = 2;
+  required NodeId node = 1;
+  required Attrs attrs = 2;
 }
 
 message DirEntryInfo {
-  bytes name = 1;
+  required bytes name = 1;
   optional NodeInfo node = 2;
 }
 
@@ -57,125 +57,125 @@ message DirEntryInfoSet {
 }
 
 message OpenHandle {
-  uint64 lo = 1;
-  uint64 hi = 2;
+  required uint64 lo = 1;
+  required uint64 hi = 2;
 }
 
 message DirEntry {
-  NodeId parent = 1;
-  bytes name = 2;
+  required NodeId parent = 1;
+  required bytes name = 2;
 }
 
 message GlobalDirEntry {
-  string poolId = 1;
-  string contId = 2;
-  DirEntry entry = 3;
+  required string poolId = 1;
+  required string contId = 2;
+  required DirEntry entry = 3;
 }
 
 message GetAttrResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional NodeInfo nodeInfo = 2;
 }
 
 message GlobalNodeId {
-  string poolId = 1;
-  string contId = 2;
-  NodeId node = 3;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId node = 3;
 }
 
 message SetAttrRequest {
-  string poolId = 1;
-  string contId = 2;
-  DirEntry entry = 3;
-  Attrs attrs = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required DirEntry entry = 3;
+  required Attrs attrs = 4;
 }
 
 message ReadLinkResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional bytes target = 2;
 }
 
 message MakeNodeRequest {
-  string poolId = 1;
-  string contId = 2;
-  DirEntry node = 3;
-  uint32 mode = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required DirEntry node = 3;
+  required uint32 mode = 4;
 }
 
 message MakeNodeResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional NodeInfo nodeInfo = 2;
 }
 
 message SymlinkRequest {
-  string poolId = 1;
-  string contId = 2;
-  DirEntry link = 3;
-  bytes target_name = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required DirEntry link = 3;
+  required bytes target_name = 4;
 }
 
 message SymlinkResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional NodeInfo nodeInfo = 2;
 }
 
 message RenameRequest {
-  string poolId = 1;
-  string contId = 2;
-  DirEntry old = 3;
-  DirEntry new = 4;
-  uint32 flags = 5;
+  required string poolId = 1;
+  required string contId = 2;
+  required DirEntry old = 3;
+  required DirEntry new = 4;
+  required uint32 flags = 5;
 }
 
 message LinkRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId source = 3;
-  DirEntry target = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId source = 3;
+  required DirEntry target = 4;
 }
 
 message LinkResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional NodeInfo nodeInfo = 2;
 }
 
 message OpenNodeResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional OpenHandle handle = 2;
 }
 
 message ReadDirRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId dir = 3;
-  OpenHandle handle = 4;
-  int64 offset = 5;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId dir = 3;
+  required OpenHandle handle = 4;
+  required int64 offset = 5;
 }
 
 message ReadDirResponse {
-  RpcResult res = 1;
+  required RpcResult res = 1;
   optional DirEntryInfoSet entries = 2;
 }
 
 message ReleaseDirRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId dir = 3;
-  OpenHandle handle = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId dir = 3;
+  required OpenHandle handle = 4;
 }
 
 message OpenRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId file = 3;
-  uint32 flags = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId file = 3;
+  required uint32 flags = 4;
 }
 
 message CloseRequest {
-  string poolId = 1;
-  string contId = 2;
-  NodeId file = 3;
-  OpenHandle handle = 4;
+  required string poolId = 1;
+  required string contId = 2;
+  required NodeId file = 3;
+  required OpenHandle handle = 4;
 }
 
 service MetadataOps {
