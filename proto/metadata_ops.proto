@@ -34,6 +34,7 @@ message Attrs {
   optional uint64 mtime_nano = 8;
   optional uint64 ctime = 9;
   optional uint64 ctime_nano = 10;
+  optional uint32 nlink = 11;
 }
 
 message RpcResult {
@@ -148,7 +149,7 @@ message ReadDirRequest {
   string contId = 2;
   NodeId dir = 3;
   OpenHandle handle = 4;
-  uint64 offset = 5;
+  int64 offset = 5;
 }
 
 message ReadDirResponse {

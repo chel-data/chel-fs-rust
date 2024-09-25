@@ -48,6 +48,7 @@ impl From<Inode> for Attrs {
             mtime_nano: Some(inode.mtime_nano),
             ctime: Some(inode.ctime),
             ctime_nano: Some(inode.ctime_nano),
+            nlink: Some(inode.nlink),
         }
     }
 }

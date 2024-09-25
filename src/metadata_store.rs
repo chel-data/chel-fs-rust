@@ -50,7 +50,7 @@ pub struct Inode {
     pub ctime_nano: u64,
     pub uid: u32,
     pub gid: u32,
-    pub nlink: u64,
+    pub nlink: u32,
     pub chunk_size: u64,
     pub total_size: u64,
 }
@@ -70,7 +70,7 @@ fn decode_inode(bytes: &[u8]) -> zvariant::Result<(Inode, usize)> {
 struct OpenDirState {
     dir: Arc<DaosObject>,
     key_list: Box<DaosKeyList>,
-    key_range: Range<u64>,
+    key_range: Range<i64>,
 }
 
 impl OpenDirState {
@@ -85,7 +85,7 @@ impl OpenDirState {
     fn construct(
         dir: Arc<DaosObject>,
         key_list: Box<DaosKeyList>,
-        key_range: Range<u64>,
+        key_range: Range<i64>,
     ) -> Box<Self> {
         Box::new(Self {
             dir,
@@ -211,7 +211,7 @@ impl MetadataStore {
         (
             self.gen_counter
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            rand::thread_rng().next_u64(),
+            0,
         )
     }
 
@@ -229,7 +229,7 @@ impl MetadataStore {
     pub async fn read_dir<F>(
         &self,
         handle: (u64, u64),
-        offset: u64,
+        offset: i64,
         mut entry_func: F,
     ) -> Result<()>
     where
@@ -248,7 +248,7 @@ impl MetadataStore {
             key_range: range,
         } = *open_state.unwrap();
 
-        if offset < range.start {
+        if offset + 1 < range.start {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "offset can't move backward",
@@ -258,9 +258,9 @@ impl MetadataStore {
         let (key_list, start_offset) = if offset >= range.end || range.start >= range.end {
             let mut key_list = dir.list_dkey_async(&DaosTxn::txn_none(), key_list).await?;
             let mut start_offset = range.end;
-            while offset >= (start_offset + key_list.get_key_num() as u64) && !key_list.reach_end()
+            while offset >= (start_offset + key_list.get_key_num() as i64) && !key_list.reach_end()
             {
-                start_offset += key_list.get_key_num() as u64;
+                start_offset += key_list.get_key_num() as i64;
                 key_list = dir.list_dkey_async(&DaosTxn::txn_none(), key_list).await?;
             }
             (key_list, start_offset)
@@ -271,8 +271,9 @@ impl MetadataStore {
         let mut start_and_idx = (0, 0);
         for i in 0..key_list.get_key_num() {
             let (key, range) = key_list.get_key(start_and_idx)?;
-            if offset < start_offset + i as u64 {
-                entry_func(key.to_vec(), None)?;
+            if offset < start_offset + i as i64 {
+                let inode = self.get_node(dir.oid, key.to_vec()).await?;
+                entry_func(key.to_vec(), Some(inode))?;
             }
             start_and_idx = range;
         }
@@ -280,7 +281,7 @@ impl MetadataStore {
         let mut open_dir = self.open_dir.write().await;
         let new_range = Range {
             start: start_offset,
-            end: start_offset + key_list.get_key_num() as u64,
+            end: start_offset + key_list.get_key_num() as i64,
         };
         open_dir.insert(handle, OpenDirState::construct(dir, key_list, new_range));
         Ok(())
