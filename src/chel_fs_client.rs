@@ -388,10 +388,11 @@ impl Filesystem for ChelFs2Fuse {
             return;
         }
 
+        let node = res.unwrap();
         let request = tonic::Request::new(GlobalNodeId {
             pool_id: self.pool_id.clone(),
             cont_id: self.cont_id.clone(),
-            node: res.unwrap(),
+            node: node.clone(),
         });
 
         let res = self.async_runtime.block_on(async {
@@ -420,7 +421,8 @@ impl Filesystem for ChelFs2Fuse {
                 handle: None,
             } => {
                 eprintln!(
-                    "open_node return error, code: {}, reason: {}",
+                    "open_dir node {} return error, code: {}, reason: {}",
+                    node,
                     res.code,
                     res.reason.unwrap_or("unknown".to_string())
                 );

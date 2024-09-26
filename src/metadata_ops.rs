@@ -15,4 +15,12 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::fmt;
+
 tonic::include_proto!("metadata_ops");
+
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.lo, self.hi)
+    }
+}

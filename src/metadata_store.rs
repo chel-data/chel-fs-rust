@@ -18,8 +18,8 @@
 use crate::file_utils::{make_mode, FILE_PERM_DEF_DIR, FILE_TYPE_DIR};
 use daos_rust_api::daos_cont::{DaosContainer, DaosContainerAsyncOps};
 use daos_rust_api::daos_obj::{
-    DaosKeyList, DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_INSERT, DAOS_OC_HINTS_NONE,
-    DAOS_OC_UNKNOWN, DAOS_OT_ARRAY_BYTE,
+    DaosKeyList, DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_FETCH, DAOS_COND_DKEY_INSERT,
+    DAOS_OC_HINTS_NONE, DAOS_OC_UNKNOWN, DAOS_OT_ARRAY_BYTE,
 };
 use daos_rust_api::daos_oid_allocator::DaosAsyncOidAllocator;
 use daos_rust_api::daos_pool::{DaosObjectId, DaosPool};
@@ -125,35 +125,38 @@ impl MetadataStore {
     }
 
     pub async fn get_node(&self, parent: DaosObjectId, entry_name: Vec<u8>) -> Result<Inode> {
-        let parent_obj = if parent == OBJECT_ID_NIL {
-            self.get_root().await
-        } else {
-            self.get_dir_obj(parent, false).await
-        }?;
-
-        let txn = DaosTxn::txn_none();
-        let flags = 0;
+        let parent_obj = self.get_dir_obj(parent, false).await?;
         let akey = vec![0u8];
 
         let ino_buf = parent_obj
-            .fetch_async(&txn, flags, entry_name.clone(), akey, 512)
+            .fetch_async(
+                &DaosTxn::txn_none(),
+                DAOS_COND_DKEY_FETCH as u64,
+                entry_name.clone(),
+                akey,
+                512,
+            )
             .await?;
 
         if let Ok((inode, _length)) = decode_inode(ino_buf.as_slice()) {
             Ok(inode)
         } else {
-            Err(Error::new(ErrorKind::InvalidData, "Failed to decode inode"))
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "Failed to decode inode, parent: {} name: {:?} buf_len: {}",
+                    parent,
+                    entry_name,
+                    ino_buf.len()
+                ),
+            ))
         }
     }
 
     pub async fn make_node(&self, parent: DaosObjectId, name: Vec<u8>, mode: u32) -> Result<Inode> {
-        let parent_obj = if parent == OBJECT_ID_NIL {
-            self.get_root().await
-        } else {
-            self.get_dir_obj(parent, false).await
-        }?;
+        let parent_obj = self.get_dir_obj(parent, false).await?;
 
-        // This object would be leaked if any following step would fail
+        // FIXME: This object could be leaked if any following step failed
         let child_obj = DaosObject::create_async(
             self.get_container().as_ref(),
             self.oid_allocator.clone(),
@@ -295,6 +298,10 @@ impl MetadataStore {
     }
 
     async fn get_dir_obj(&self, dir: DaosObjectId, cache_in: bool) -> Result<Arc<DaosObject>> {
+        if dir == OBJECT_ID_NIL {
+            return self.get_root().await;
+        }
+
         let dir_cache = self.dir_cache.read().await;
         match dir_cache.get(&dir) {
             Some(dir_obj) => Ok(dir_obj.clone()),
@@ -334,7 +341,7 @@ impl MetadataStore {
 
         let root_oid = co_roots[1];
 
-        let root_obj = DaosObject::open_async(self.cont.as_ref(), root_oid, true).await?;
+        let root_obj = DaosObject::open_async(self.cont.as_ref(), root_oid, false).await?;
 
         let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(d) => d,
@@ -373,7 +380,7 @@ impl MetadataStore {
             )
             .await;
         if res.is_err() {
-            eprintln!("lose in race to create initial root object");
+            eprintln!("lose in race to create initial root object, res: {:?}", res);
         }
 
         let root_arc: Arc<DaosObject> = Arc::from(root_obj);
