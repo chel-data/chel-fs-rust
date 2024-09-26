@@ -1,5 +1,5 @@
 ## Introduction
-This is a Rust version of Chel-fs. It runs on a DAOS cluster. It has two bin files. They are chel-fs-server and chel-fs-client. chel-fs-server is the backend server. chel-fs-client is the client. chel-fs-client is also a fuse client. By working together they can provide a filesystem which can be accessed through a fuse mountpoint.
+A Rust version of Chel-fs runs on a DAOS cluster. It consists of two bin files, chel-fs-server and chel-fs-client. chel-fs-server is the backend server. chel-fs-client is the fuse client. They together can provide a filesystem through fuse.
 
 ## How to build
 The build process should be very easy except for preparation for a DAOS cluster.
@@ -9,21 +9,16 @@ You need to go through these steps before successfully building chel-fs-rust bin
 
     Installing DAOS is chanllenging for new comers. But you can follow the instructions in this [document](https://github.com/chel-data/chel-fs/blob/main/docs/qemu-vms.md). It is a document for setting up a DAOS cluster on QEMU VMs on a personal computer. You can also set up a DAOS cluster on real machines. Use the official guidance from the DAOS project.
 
-* Install necessary packages.
-  * Install Rust in daos-client.
+* Install library packages and tools on daos-client.
 
-    You can install Rust by following the instructions on the [Rust website](https://www.rust-lang.org/tools/install).
+    Install Rust. You can install Rust by following the instructions on the [Rust website](https://www.rust-lang.org/tools/install).
 
-  * Install libfuse in daos-client.
+    Install libfuse. You need to install both library and development package. For Rocky Linux you can use "dnf install fuse3-libs fuse3-devel". For Ubuntu you can use "apt-get install libfuse3-3 libfuse3-dev".
 
-    You need to install both library and development package. For Rocky Linux you can use "dnf install fuse3-libs fuse3-devel". For Ubuntu you can use "apt-get install libfuse3-3 libfuse3-dev".
-
-  * Install protobuf and protobuf-compiler in daos-client.
-
-    Use the package manager of your OS to install it.
+    Install protobuf and protobuf-compiler. Use the package manager of your OS to install it.
 
 ### Checkout Code
-Check out these repos in daos-client.
+Check out these repos on daos-client.
 
     git clone git@github.com:chel-data/daos-rust-bind.git
     git clone git@github.com:chel-data/chel-fs-rust.git
