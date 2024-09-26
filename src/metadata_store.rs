@@ -275,7 +275,7 @@ impl MetadataStore {
         let mut start_and_idx = (0, 0);
         for i in 0..key_list.get_key_num() {
             let (key, range) = key_list.get_key(start_and_idx)?;
-            if offset < start_offset + i as i64 {
+            if offset <= start_offset + i as i64 {
                 let inode = self.get_node(dir.oid, key.to_vec()).await?;
                 entry_func(key.to_vec(), Some(inode))?;
             }

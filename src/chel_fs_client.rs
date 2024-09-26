@@ -193,6 +193,7 @@ impl ChelFs2Fuse {
 
 impl Filesystem for ChelFs2Fuse {
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        println!("lookup ino {} name {}", parent, name.to_string_lossy());
         let parent_id = self.find_node_id(parent).unwrap();
 
         let res = self.call_get_attr(parent_id, name.as_bytes().to_vec());
@@ -215,7 +216,7 @@ impl Filesystem for ChelFs2Fuse {
                     res.code,
                     res.reason.unwrap_or("empty".to_string())
                 );
-                reply.error(EFAULT);
+                reply.error(ENOENT);
                 return;
             }
             GetAttrResponse {
@@ -245,6 +246,7 @@ impl Filesystem for ChelFs2Fuse {
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
+        println!("getattr ino {}", ino);
         let (parent_id, name) = if ino == ROOT_INODE_NUMBER {
             (NodeId { hi: 0, lo: 0 }, vec![b'.'])
         } else {
@@ -287,10 +289,7 @@ impl Filesystem for ChelFs2Fuse {
                 res: _,
                 node_info: Some(info),
             } => {
-                let NodeInfo {
-                    node: _,
-                    attrs,
-                } = info;
+                let NodeInfo { node: _, attrs } = info;
                 let attr = Self::make_file_attr(ino, attrs);
                 reply.attr(&Duration::ZERO, &attr);
                 return;
@@ -308,6 +307,12 @@ impl Filesystem for ChelFs2Fuse {
         _rdev: u32,
         reply: ReplyEntry,
     ) {
+        println!(
+            "mknod parent {} name {} mode {}",
+            parent,
+            name.to_string_lossy(),
+            mode
+        );
         let parent_id = self.find_node_id(parent).unwrap();
 
         let request = tonic::Request::new(MakeNodeRequest {
@@ -381,6 +386,7 @@ impl Filesystem for ChelFs2Fuse {
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
+        println!("opendir ino {}", ino);
         let res = self.find_node_id(ino);
         if res.is_err() {
             eprintln!("can't find node id for ino: {}", ino);
@@ -416,10 +422,7 @@ impl Filesystem for ChelFs2Fuse {
         }
 
         match res.unwrap() {
-            OpenNodeResponse {
-                res,
-                handle: None,
-            } => {
+            OpenNodeResponse { res, handle: None } => {
                 eprintln!(
                     "open_dir node {} return error, code: {}, reason: {}",
                     node,
@@ -448,6 +451,7 @@ impl Filesystem for ChelFs2Fuse {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        println!("readdir ino {} fh {}", ino, fh);
         let parent_id = self.find_node_id(ino);
         if parent_id.is_err() {
             eprintln!("can't find node id for ino: {}", ino);
@@ -485,10 +489,7 @@ impl Filesystem for ChelFs2Fuse {
         }
 
         match res.unwrap() {
-            ReadDirResponse {
-                res,
-                entries: None,
-            } => {
+            ReadDirResponse { res, entries: None } => {
                 eprintln!(
                     "read_dir return error, code: {}, reason: {}",
                     res.code,
@@ -501,6 +502,10 @@ impl Filesystem for ChelFs2Fuse {
                 res: _,
                 entries: Some(entry_set),
             } => {
+                println!(
+                    "readdir return entries: {:?} @ offset {}",
+                    entry_set.entries, offset
+                );
                 let mut entry_offset = offset;
                 for entry in entry_set.entries {
                     let DirEntryInfo { name, node } = entry;
@@ -519,11 +524,12 @@ impl Filesystem for ChelFs2Fuse {
                     let entry_name = OsStr::from_bytes(&name).to_owned();
                     self.insert_id_map(ino, parent_id, name, node_id)
                         .expect("insert id map failed");
+
+                    // offset to ReplyDirectory is used for next readdir call
+                    entry_offset += 1;
                     if reply.add(ino, entry_offset, file_type, &entry_name) {
                         break;
                     }
-
-                    entry_offset += 1;
                 }
                 reply.ok();
                 return;
@@ -539,6 +545,7 @@ impl Filesystem for ChelFs2Fuse {
         _flags: i32,
         reply: ReplyEmpty,
     ) {
+        println!("releasedir ino {} fh {}", ino, fh);
         let parent_id = self.find_node_id(ino);
         if parent_id.is_err() {
             eprintln!("can't find node id for ino: {}", ino);
@@ -589,6 +596,7 @@ impl Filesystem for ChelFs2Fuse {
     }
 
     fn open(&mut self, _req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+        println!("open ino {}", ino);
         reply.opened(ino, FOPEN_DIRECT_IO | FOPEN_NONSEEKABLE);
     }
 
@@ -602,6 +610,7 @@ impl Filesystem for ChelFs2Fuse {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
+        println!("release ino {} fh {}", _ino, _fh);
         reply.ok();
     }
 
@@ -616,6 +625,7 @@ impl Filesystem for ChelFs2Fuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
+        println!("read ino {} fh {}", ino, _fh);
         let str = format!("ino = {}", ino);
         reply.data(str.as_ref());
     }
