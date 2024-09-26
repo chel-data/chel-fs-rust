@@ -619,15 +619,19 @@ impl Filesystem for ChelFs2Fuse {
         _req: &Request,
         ino: u64,
         _fh: u64,
-        _offset: i64,
+        offset: i64,
         _size: u32,
         _flags: i32,
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        println!("read ino {} fh {}", ino, _fh);
+        println!("read ino {} fh {} offset {}", ino, _fh, offset);
+        if offset == 0 {
         let str = format!("ino = {}", ino);
-        reply.data(str.as_ref());
+            reply.data(str.as_ref());
+        } else {
+            reply.data(&[]);
+        }
     }
 }
 
