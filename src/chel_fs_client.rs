@@ -18,7 +18,12 @@
 mod file_utils;
 mod metadata_ops;
 
-use file_utils::{apply_umask, get_file_perm, get_file_type, FILE_PERM_DEF_REG, FILE_TYPE_REG};
+use daos_rust_api::daos_cont::DaosContainer;
+use daos_rust_api::daos_obj::{DaosObjAsyncOps, DaosObject};
+use daos_rust_api::daos_pool::{DaosObjectId, DaosPool};
+use file_utils::{
+    apply_umask, get_file_perm, get_file_type, DEFAULT_BLOCK_SIZE, DEF_FILE_PERM_REG, FILE_TYPE_REG,
+};
 use fuser::consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE};
 use fuser::{
     FileAttr, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty,
@@ -30,32 +35,22 @@ use metadata_ops::{
     GlobalDirEntry, NodeId, NodeInfo, OpenNodeResponse, ReadDirRequest, ReleaseDirRequest,
 };
 use metadata_ops::{GlobalNodeId, MakeNodeRequest, MakeNodeResponse, OpenHandle, ReadDirResponse};
-use rand::RngCore;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hasher};
 use std::io::{Error, ErrorKind, Result};
 use std::ops::Add;
 use std::os::unix::ffi::OsStrExt;
-use std::sync::{atomic::AtomicU64, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, RwLock};
 use std::time::{Duration, UNIX_EPOCH};
 use tokio::runtime::Builder;
 use tonic::transport::Channel;
 
 const ROOT_INODE_NUMBER: u64 = 1;
 
-pub struct ChelFs2Fuse {
-    client: MetadataOpsClient<tonic::transport::Channel>,
-    async_runtime: tokio::runtime::Runtime,
-    pool_id: String,
-    cont_id: String,
-    id_map: RwLock<HashMap<u64, (NodeId, Vec<u8>, NodeId)>>,
-    generation: AtomicU64,
-}
-
 impl From<Attrs> for FileAttr {
     fn from(attrs: Attrs) -> Self {
-        let mode = attrs.mode.unwrap_or(FILE_TYPE_REG | FILE_PERM_DEF_REG);
+        let mode = attrs.mode.unwrap_or(FILE_TYPE_REG | DEF_FILE_PERM_REG);
         FileAttr {
             ino: 0,
             size: attrs.size.unwrap_or(0),
@@ -71,24 +66,47 @@ impl From<Attrs> for FileAttr {
             gid: attrs.gid.unwrap_or(0),
             rdev: 0,
             flags: 0,
-            blksize: 0,
+            blksize: attrs.blksize.unwrap_or(DEFAULT_BLOCK_SIZE),
         }
     }
+}
+
+pub struct ChelFs2Fuse {
+    client: MetadataOpsClient<tonic::transport::Channel>,
+    async_runtime: tokio::runtime::Runtime,
+    pool_id: String,
+    cont_id: String,
+    _pool: Box<DaosPool>,
+    cont: Box<DaosContainer>,
+    counter: AtomicU64,
+    id_map: RwLock<HashMap<u64, (NodeId, Vec<u8>, NodeId)>>,
+    open_fh: RwLock<HashMap<u64, Arc<DaosObject>>>,
 }
 
 impl ChelFs2Fuse {
     pub fn new(
         client: MetadataOpsClient<tonic::transport::Channel>,
         async_runtime: tokio::runtime::Runtime,
-    ) -> Self {
-        ChelFs2Fuse {
+    ) -> Result<Self> {
+        let pool_id = "pool1";
+        let cont_id = "cont1";
+        let mut pool = Box::new(DaosPool::new(pool_id));
+        pool.connect()?;
+
+        let mut cont = Box::new(DaosContainer::new(cont_id));
+        cont.connect(&pool)?;
+
+        Ok(ChelFs2Fuse {
             client,
             async_runtime,
-            pool_id: "pool1".to_string(),
-            cont_id: "cont1".to_string(),
+            pool_id: pool_id.to_string(),
+            cont_id: cont_id.to_string(),
+            _pool: pool,
+            cont,
+            counter: AtomicU64::new(0),
             id_map: RwLock::new(HashMap::new()),
-            generation: AtomicU64::new(rand::thread_rng().next_u64()),
-        }
+            open_fh: RwLock::new(HashMap::new()),
+        })
     }
 
     fn find_node_id(&self, ino: u64) -> Result<NodeId> {
@@ -157,8 +175,8 @@ impl ChelFs2Fuse {
         hasher.finish()
     }
 
-    fn gen_generation(&self) -> u64 {
-        self.generation
+    fn gen_handle(&self) -> u64 {
+        self.counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
@@ -239,7 +257,7 @@ impl Filesystem for ChelFs2Fuse {
                 }
 
                 let attr = Self::make_file_attr(ino, attrs);
-                reply.entry(&Duration::ZERO, &attr, self.gen_generation());
+                reply.entry(&Duration::ZERO, &attr, 0);
                 return;
             }
         }
@@ -379,7 +397,7 @@ impl Filesystem for ChelFs2Fuse {
                 }
 
                 let attr = Self::make_file_attr(ino, attrs);
-                reply.entry(&Duration::ZERO, &attr, self.gen_generation());
+                reply.entry(&Duration::ZERO, &attr, 0);
                 return;
             }
         }
@@ -597,20 +615,54 @@ impl Filesystem for ChelFs2Fuse {
 
     fn open(&mut self, _req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         println!("open ino {}", ino);
-        reply.opened(ino, FOPEN_DIRECT_IO | FOPEN_NONSEEKABLE);
+        let node_id = self.find_node_id(ino);
+        if node_id.is_err() {
+            eprintln!("can't find node id for ino {}", ino);
+            reply.error(EFAULT);
+            return;
+        }
+        let obj_id: DaosObjectId = node_id.unwrap().into();
+
+        let res = self.async_runtime.block_on(async {
+            let obj = DaosObject::open_async(self.cont.as_ref(), obj_id, false).await;
+            match obj {
+                Ok(obj) => Ok(obj),
+                Err(e) => Err(Error::new(
+                    ErrorKind::Other,
+                    format!("open object failed, error: {}", e),
+                )),
+            }
+        });
+
+        match res {
+            Ok(obj) => {
+                let fh = self.gen_handle();
+                let mut write_map = self.open_fh.write().expect("fail to open handle table");
+                write_map.insert(fh, Arc::from(obj));
+                drop(write_map);
+                reply.opened(fh, FOPEN_DIRECT_IO | FOPEN_NONSEEKABLE);
+            }
+            Err(e) => {
+                eprintln!("open object failed, error: {}", e.to_string());
+                reply.error(EFAULT);
+            }
+        }
     }
 
     fn release(
         &mut self,
         _req: &Request,
-        _ino: u64,
-        _fh: u64,
+        ino: u64,
+        fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        println!("release ino {} fh {}", _ino, _fh);
+        println!("release ino {} fh {}", ino, fh);
+        let mut write_map = self.open_fh.write().expect("fail to open handle table");
+        let _ = write_map.remove(&fh);
+        drop(write_map);
         reply.ok();
     }
 
@@ -627,7 +679,7 @@ impl Filesystem for ChelFs2Fuse {
     ) {
         println!("read ino {} fh {} offset {}", ino, _fh, offset);
         if offset == 0 {
-        let str = format!("ino = {}", ino);
+            let str = format!("ino = {}", ino);
             reply.data(str.as_ref());
         } else {
             reply.data(&[]);
@@ -648,7 +700,7 @@ fn main() {
         })
         .unwrap();
 
-    let fs = ChelFs2Fuse::new(client, async_runtime);
+    let fs = ChelFs2Fuse::new(client, async_runtime).expect("failed to connect to DAOS");
 
     let options = vec![
         MountOption::RW,

@@ -15,7 +15,7 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::file_utils::{make_mode, FILE_PERM_DEF_DIR, FILE_TYPE_DIR};
+use crate::file_utils::{make_mode, DEF_FILE_PERM_DIR, FILE_TYPE_DIR, DEFAULT_BLOCK_SIZE};
 use daos_rust_api::daos_cont::{DaosContainer, DaosContainerAsyncOps};
 use daos_rust_api::daos_obj::{
     DaosKeyList, DaosObjAsyncOps, DaosObject, DAOS_COND_DKEY_FETCH, DAOS_COND_DKEY_INSERT,
@@ -36,7 +36,6 @@ use tokio::sync::RwLock;
 use zvariant::{serialized::Context, serialized::Data, to_bytes, Type, LE};
 
 const OBJECT_ID_NIL: DaosObjectId = DaosObjectId { lo: 0, hi: 0 };
-const DEFAULT_CHUNK_SIZE: u64 = 1 << 16;
 
 #[derive(Deserialize, Serialize, Type, Debug)]
 pub struct Inode {
@@ -52,7 +51,7 @@ pub struct Inode {
     pub uid: u32,
     pub gid: u32,
     pub nlink: u32,
-    pub chunk_size: u64,
+    pub chunk_size: u32,
     pub total_size: u64,
 }
 
@@ -187,7 +186,7 @@ impl MetadataStore {
             uid: 0,
             gid: 0,
             nlink: 1,
-            chunk_size: DEFAULT_CHUNK_SIZE,
+            chunk_size: DEFAULT_BLOCK_SIZE,
             total_size: 0,
         };
 
@@ -204,7 +203,7 @@ impl MetadataStore {
                 DAOS_COND_DKEY_INSERT as u64,
                 name,
                 akey,
-                ino_buf.to_vec(),
+                ino_buf.bytes(),
             )
             .await?;
 
@@ -348,7 +347,7 @@ impl MetadataStore {
             Err(e) => return Err(Error::new(ErrorKind::Other, e.to_string())),
         };
         let root_inode = Inode {
-            mode: make_mode(FILE_TYPE_DIR, FILE_PERM_DEF_DIR),
+            mode: make_mode(FILE_TYPE_DIR, DEF_FILE_PERM_DIR),
             oid_lo: root_oid.lo,
             oid_hi: root_oid.hi,
             atime: duration.as_secs(),
@@ -360,7 +359,7 @@ impl MetadataStore {
             uid: 0,
             gid: 0,
             nlink: 1,
-            chunk_size: DEFAULT_CHUNK_SIZE,
+            chunk_size: DEFAULT_BLOCK_SIZE,
             total_size: 0,
         };
         let encoded_data = encode_inode(&root_inode).map_err(|e| {
@@ -376,7 +375,7 @@ impl MetadataStore {
                 DAOS_COND_DKEY_INSERT as u64,
                 vec![b'.'],
                 vec![0u8],
-                encoded_data.to_vec(),
+                encoded_data.bytes(),
             )
             .await;
         if res.is_err() {
@@ -386,10 +385,6 @@ impl MetadataStore {
         let root_arc: Arc<DaosObject> = Arc::from(root_obj);
         (*root_opt).replace(root_arc.clone());
         Ok(root_arc)
-    }
-
-    fn get_pool(&self) -> Arc<DaosPool> {
-        self._pool.clone()
     }
 
     fn get_container(&self) -> Arc<DaosContainer> {

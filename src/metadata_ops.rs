@@ -16,11 +16,21 @@
  */
 
 use std::fmt;
+use daos_rust_api::daos_pool::DaosObjectId;
 
 tonic::include_proto!("metadata_ops");
 
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.lo, self.hi)
+    }
+}
+
+impl From<NodeId> for DaosObjectId {
+    fn from(node_id: NodeId) -> Self {
+        DaosObjectId {
+            lo: node_id.lo,
+            hi: node_id.hi,
+        }
     }
 }

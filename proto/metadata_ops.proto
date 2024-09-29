@@ -35,6 +35,7 @@ message Attrs {
   optional uint64 ctime = 9;
   optional uint64 ctime_nano = 10;
   optional uint32 nlink = 11;
+  optional uint32 blksize = 12;
 }
 
 message RpcResult {

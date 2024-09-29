@@ -20,8 +20,8 @@ mod metadata_ops;
 mod metadata_store;
 
 use daos_rust_api::daos_cont::DaosContainer;
-use daos_rust_api::daos_pool::{DaosObjectId, DaosPool};
 use daos_rust_api::daos_oid_allocator::DaosAsyncOidAllocator;
+use daos_rust_api::daos_pool::DaosPool;
 use metadata_ops::{
     metadata_ops_server::{MetadataOps, MetadataOpsServer},
     *,
@@ -50,6 +50,7 @@ impl From<Inode> for Attrs {
             ctime: Some(inode.ctime),
             ctime_nano: Some(inode.ctime_nano),
             nlink: Some(inode.nlink),
+            blksize: Some(inode.chunk_size),
         }
     }
 }
@@ -65,15 +66,6 @@ impl RpcResult {
         RpcResult {
             code: 1,
             reason: Some(reason),
-        }
-    }
-}
-
-impl From<NodeId> for DaosObjectId {
-    fn from(node_id: NodeId) -> Self {
-        DaosObjectId {
-            lo: node_id.lo,
-            hi: node_id.hi,
         }
     }
 }
@@ -96,7 +88,11 @@ impl MetadataOpsImpl {
         let allocator = DaosAsyncOidAllocator::new(cont.clone())?;
 
         Ok(MetadataOpsImpl {
-            store: Arc::new(MetadataStore::new(Arc::from(pool), cont, Arc::from(allocator))),
+            store: Arc::new(MetadataStore::new(
+                Arc::from(pool),
+                cont,
+                Arc::from(allocator),
+            )),
         })
     }
 }
@@ -113,10 +109,7 @@ impl MetadataOps for MetadataOpsImpl {
             entry,
         } = request.into_inner();
 
-        let DirEntry {
-            parent,
-            name,
-        } = entry;
+        let DirEntry { parent, name } = entry;
 
         let parent_oid = parent.into();
 
@@ -164,15 +157,9 @@ impl MetadataOps for MetadataOpsImpl {
             mode,
         } = request.into_inner();
 
-        let DirEntry {
-            parent,
-            name,
-        } = node;
+        let DirEntry { parent, name } = node;
 
-        let res = self
-            .store
-            .make_node(parent.into(), name, mode)
-            .await;
+        let res = self.store.make_node(parent.into(), name, mode).await;
         match res {
             Ok(inode) => Ok(tonic::Response::new(MakeNodeResponse {
                 res: RpcResult::ok(),
@@ -269,22 +256,26 @@ impl MetadataOps for MetadataOpsImpl {
 
         let res = self
             .store
-            .read_dir((handle.lo, handle.hi), offset, |name: Vec<u8>, inode: Option<Inode>| {
-                let entry = DirEntryInfo {
-                    name,
-                    node: inode.map(|inode| NodeInfo {
-                        node: NodeId {
-                            lo: inode.oid_lo,
-                            hi: inode.oid_hi,
-                        },
-                        attrs: inode.into(),
-                    }),
-                };
+            .read_dir(
+                (handle.lo, handle.hi),
+                offset,
+                |name: Vec<u8>, inode: Option<Inode>| {
+                    let entry = DirEntryInfo {
+                        name,
+                        node: inode.map(|inode| NodeInfo {
+                            node: NodeId {
+                                lo: inode.oid_lo,
+                                hi: inode.oid_hi,
+                            },
+                            attrs: inode.into(),
+                        }),
+                    };
 
-                info_set.entries.push(entry);
+                    info_set.entries.push(entry);
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .await;
 
         match res {
