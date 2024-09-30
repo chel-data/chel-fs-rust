@@ -126,18 +126,20 @@ impl MetadataStore {
     pub async fn get_node(&self, parent: DaosObjectId, entry_name: Vec<u8>) -> Result<Inode> {
         let parent_obj = self.get_dir_obj(parent, false).await?;
         let akey = vec![0u8];
+        let mut inode_buf = vec![0u8; 512];
 
-        let ino_buf = parent_obj
+        let buf_size = parent_obj
             .fetch_async(
                 &DaosTxn::txn_none(),
                 DAOS_COND_DKEY_FETCH as u64,
                 entry_name.clone(),
                 akey,
-                512,
+        inode_buf.as_mut_slice(),
             )
             .await?;
 
-        if let Ok((inode, _length)) = decode_inode(ino_buf.as_slice()) {
+        inode_buf.resize(buf_size, 0u8);
+        if let Ok((inode, _length)) = decode_inode(inode_buf.as_slice()) {
             Ok(inode)
         } else {
             Err(Error::new(
@@ -146,7 +148,7 @@ impl MetadataStore {
                     "Failed to decode inode, parent: {} name: {:?} buf_len: {}",
                     parent,
                     entry_name,
-                    ino_buf.len()
+                    buf_size,
                 ),
             ))
         }
